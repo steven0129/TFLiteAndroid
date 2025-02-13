@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -44,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
     private static String TAG="TEST";
     private Button button = null;
     private ImageView imageView = null;
+    private TextView resultTextView = null;
     private Interpreter tfliteInterpreter = null;
     private Bitmap bitmap = null;
 
@@ -53,6 +55,8 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         this.button = findViewById(R.id.button);
+        this.imageView = findViewById(R.id.image_view);
+        this.resultTextView = findViewById(R.id.result_text_view);
         this.bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.cat_resized);
         this.imageView.setImageBitmap(bitmap);
 
@@ -69,9 +73,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         this.button.setOnClickListener(v -> {
-            float[] result = runInference();
+            float[] result = runInference(this.bitmap);
             String category = getTopCategory(result);
             List<String> topCategories = getTopCategories(result);
+            this.resultTextView.setText("Predicted Category: " + category);
+
             Log.d(TAG, "Predicted Category: " + category);
             for (String c : topCategories) {
                 Log.d(TAG, "Predicted Category: " + c);
