@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.ImageView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -42,7 +43,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static String TAG="TEST";
     private Button button = null;
+    private ImageView imageView = null;
     private Interpreter tfliteInterpreter = null;
+    private Bitmap bitmap = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,6 +53,8 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         this.button = findViewById(R.id.button);
+        this.bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.cat_resized);
+        this.imageView.setImageBitmap(bitmap);
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -83,35 +88,23 @@ public class MainActivity extends AppCompatActivity {
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 
-    private float[] runInference() {
-        // 從資源中載入圖片
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.cat_resized);
-
-        // 初始化 TensorImage
+    private float[] runInference(Bitmap bitmap) {
         TensorImage tensorImage = new TensorImage(DataType.FLOAT32);
         tensorImage.load(bitmap);
 
-        // 使用 ImageProcessor 進行影像處理
         ImageProcessor imageProcessor = new ImageProcessor.Builder()
                 .add(new ResizeOp(224, 224, ResizeOp.ResizeMethod.BILINEAR))
                 .add(new NormalizeOp(127.5f, 127.5f))
                 .build();
         tensorImage = imageProcessor.process(tensorImage);
-
-        // 準備輸出緩衝區
         TensorBuffer outputBuffer = TensorBuffer.createFixedSize(new int[]{1, 1001}, DataType.FLOAT32);
-
-        // 執行推論
         tfliteInterpreter.run(tensorImage.getBuffer(), outputBuffer.getBuffer());
-
-        // 獲取結果
         return outputBuffer.getFloatArray();
     }
 
     private List<String> loadLabelsFromJson(Context context) {
         List<String> labels = new ArrayList<>();
         try {
-            // 讀取 JSON 檔案
             InputStream inputStream = context.getAssets().open("labels.json");
             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
             StringBuilder jsonString = new StringBuilder();
@@ -121,7 +114,6 @@ public class MainActivity extends AppCompatActivity {
             }
             reader.close();
 
-            // 解析 JSON 陣列
             JSONArray jsonArray = new JSONArray(jsonString.toString());
             for (int i = 0; i < jsonArray.length(); i++) {
                 labels.add(jsonArray.getString(i));
@@ -133,7 +125,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String getTopCategory(float[] result) {
-        // 找到最大值的索引
         int maxIndex = 0;
         float maxScore = result[0];
         for (int i = 1; i < result.length; i++) {
@@ -143,7 +134,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // 讀取 JSON 標籤
         List<String> labels = loadLabelsFromJson(getApplicationContext());
         if (maxIndex < labels.size()) {
             return labels.get(maxIndex);
@@ -153,13 +143,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private List<String> getTopCategories(float[] result) {
-        // 建立索引陣列
         Integer[] indices = new Integer[result.length];
         for (int i = 0; i < result.length; i++) {
             indices[i] = i;
         }
 
-        // 根據機率進行降序排序
         Arrays.sort(indices, new Comparator<Integer>() {
             @Override
             public int compare(Integer i1, Integer i2) {
@@ -167,10 +155,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // 取得 JSON 標籤
         List<String> labels = loadLabelsFromJson(getApplicationContext());
-
-        // 取出前5名的結果
         List<String> topCategories = new ArrayList<>();
         int numResults = Math.min(5, result.length);
         for (int i = 0; i < numResults; i++) {
