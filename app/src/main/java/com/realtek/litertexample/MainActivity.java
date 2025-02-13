@@ -6,9 +6,13 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
+import android.widget.AdapterView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -20,11 +24,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
+import org.tensorflow.lite.gpu.GpuDelegate;
+import org.tensorflow.lite.nnapi.NnApiDelegate;
 import org.tensorflow.lite.support.common.ops.NormalizeOp;
 import org.tensorflow.lite.support.image.ImageProcessor;
 import org.tensorflow.lite.support.image.TensorImage;
 import org.tensorflow.lite.support.image.ops.ResizeOp;
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
+
 
 import java.io.BufferedReader;
 import java.io.FileInputStream;
@@ -46,7 +53,10 @@ public class MainActivity extends AppCompatActivity {
     private Button button = null;
     private ImageView imageView = null;
     private TextView resultTextView = null;
+    private Spinner delegateSpinner = null;
     private Interpreter tfliteInterpreter = null;
+    private NnApiDelegate nnApiDelegate = null;
+    private GpuDelegate gpuDelegate = null;
     private Bitmap bitmap = null;
 
     @Override
@@ -57,8 +67,14 @@ public class MainActivity extends AppCompatActivity {
         this.button = findViewById(R.id.button);
         this.imageView = findViewById(R.id.image_view);
         this.resultTextView = findViewById(R.id.result_text_view);
+        this.delegateSpinner = findViewById(R.id.delegate_spinner);
         this.bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.cat_resized);
         this.imageView.setImageBitmap(bitmap);
+
+        NnApiDelegate.Options nnApiOptions = new NnApiDelegate.Options();
+        nnApiOptions.setAllowFp16(true).setUseNnapiCpu(true);
+        this.nnApiDelegate = new NnApiDelegate(nnApiOptions);
+        this.gpuDelegate = new GpuDelegate();
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -67,7 +83,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
         try {
-            this.tfliteInterpreter = new Interpreter(loadModelFile(this, "MobileNetV2.tflite"));
+            Interpreter.Options options = new Interpreter.Options();
+            options.addDelegate(this.nnApiDelegate);
+            this.tfliteInterpreter = new Interpreter(loadModelFile(this, "MobileNetV2.tflite"), options);
         } catch(Exception ex) {
             Log.d(TAG, "Prepare Interpreter failed");
         }
@@ -76,13 +94,32 @@ public class MainActivity extends AppCompatActivity {
             float[] result = runInference(this.bitmap);
             String category = getTopCategory(result);
             List<String> topCategories = getTopCategories(result);
-            this.resultTextView.setText("Predicted Category: " + category);
+            this.resultTextView.setText("Predicted Category: " + category + ", inference with " + this.delegateSpinner.getSelectedItem().toString());
 
             Log.d(TAG, "Predicted Category: " + category);
             for (String c : topCategories) {
                 Log.d(TAG, "Predicted Category: " + c);
             }
         });
+
+        initSpinner();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (this.tfliteInterpreter != null) {
+            this.tfliteInterpreter.close();
+            this.tfliteInterpreter = null;
+        }
+        if (this.nnApiDelegate != null) {
+            this.nnApiDelegate.close();
+            this.nnApiDelegate = null;
+        }
+        if (this.gpuDelegate != null) {
+            this.gpuDelegate.close();
+            this.gpuDelegate = null;
+        }
     }
 
     private MappedByteBuffer loadModelFile(Context context, String modelPath) throws IOException {
@@ -171,5 +208,40 @@ public class MainActivity extends AppCompatActivity {
             topCategories.add(category + ": " + probability);
         }
         return topCategories;
+    }
+
+    private void initSpinner() {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"NNAPI", "GPU"});
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        delegateSpinner.setAdapter(adapter);
+
+        delegateSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                Interpreter.Options options = new Interpreter.Options();
+
+                switch(position) {
+                    case 0:
+                        options.addDelegate(MainActivity.this.nnApiDelegate);
+                        break;
+                    case 1:
+                        options.addDelegate(MainActivity.this.gpuDelegate);
+                        break;
+                }
+
+                try {
+                    MainActivity.this.tfliteInterpreter = new Interpreter(loadModelFile(MainActivity.this, "MobileNetV2.tflite"), options);
+                } catch(IOException ex) {
+                    Log.d(TAG, "Change interpreter failed");
+                }
+
+                MainActivity.this.resultTextView.setText("");
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
     }
 }
